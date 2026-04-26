@@ -7,13 +7,14 @@ A Python-based MCP (Model Context Protocol) server that connects Claude to your 
 ## Project Structure
 
 ```
-zoho-mail-mcp/
+zohomail-mcp/
 ├── .env                    # Your secrets — never commit this file
 ├── .zoho_tokens.json       # Auto-generated OAuth2 tokens — never commit this file
 ├── .gitignore
 ├── requirements.txt
 ├── README.md
 ├── server.py               # MCP server entrypoint
+├── test_mail.py            # Quick sanity-check script
 ├── auth/
 │   └── zoho_auth.py        # OAuth2 token management & refresh logic
 └── zoho/
@@ -49,15 +50,13 @@ Before writing any code, you need OAuth2 credentials from Zoho.
 
 ## Step 2 — Clone the Project & Set Up a Virtual Environment
 
-A virtual environment (`venv`) isolates this project's Python dependencies from the rest of your system. This is best practice for any Python project — it prevents version conflicts and keeps your system Python clean.
+A virtual environment (`venv`) isolates this project's Python dependencies from the rest of your system.
 
 ```bash
-# Clone or create the project directory
-git clone 
+git clone https://github.com/DogsbodyOps/zohomail-mcp.git
 cd zohomail-mcp
 
 # Create a virtual environment in a folder called .venv
-# The dot prefix hides it from casual directory listings
 python3 -m venv .venv
 ```
 
@@ -80,10 +79,10 @@ source .venv/bin/activate
 .venv\Scripts\activate.bat
 ```
 
-Once activated, your terminal prompt changes to show `(.venv)` at the start — this confirms you're working inside the virtual environment:
+Once activated, your terminal prompt changes to show `(.venv)` at the start:
 
 ```
-(.venv) ronnie@server:~/zoho-mail-mcp$
+(.venv) aaron@machine:~/zohomail-mcp$
 ```
 
 > **Tip:** To deactivate and return to your system Python, simply run `deactivate`.
@@ -102,15 +101,9 @@ This installs:
 
 | Package | Purpose |
 |---|---|
-| `mcp` | Anthropic's MCP Python SDK — the server framework |
-| `httpx` | Async HTTP client for calling the Zoho REST API |
-| `python-dotenv` | Loads secrets from your `.env` file |
-
-To confirm everything installed correctly:
-
-```bash
-pip list
-```
+| `mcp>=1.0.0` | Anthropic's MCP Python SDK — the server framework |
+| `httpx>=0.27.0` | Async HTTP client for calling the Zoho REST API |
+| `python-dotenv>=1.0.0` | Loads secrets from your `.env` file |
 
 ---
 
@@ -119,45 +112,23 @@ pip list
 Create a `.env` file in the project root. This file holds your credentials and is **never committed to version control**.
 
 ```bash
-# Create the file
 cp .env.example .env
 ```
 
-Open it in your editor and replace the placeholder values with the Client ID and Client Secret you copied from the Zoho API Console in Step 1.
+Open it in your editor and replace the placeholder values with the Client ID and Client Secret you copied from the Zoho API Console in Step 1:
 
----
-
-## Step 5 — Set Up `.gitignore`
-
-Before doing anything else with git, make sure sensitive files are excluded:
-
-```bash
-cat > .gitignore << 'EOF'
-# Secrets and tokens — never commit these
-.env
-.zoho_tokens.json
-
-# Virtual environment
-.venv/
-
-# Python cache files
-__pycache__/
-*.pyc
-*.pyo
-
-# OS files
-.DS_Store
-EOF
+```
+ZOHO_CLIENT_ID=your_client_id_here
+ZOHO_CLIENT_SECRET=your_client_secret_here
 ```
 
 ---
 
-## Step 6 — Run the Initial OAuth2 Authorisation
+## Step 5 — Run the Initial OAuth2 Authorisation
 
 This is a **one-time step**. It exchanges the authorisation code from Step 1 for a long-lived refresh token, which is saved locally so the server can authenticate automatically from now on.
 
 ```bash
-# Make sure your venv is active before running this
 python auth/zoho_auth.py
 ```
 
@@ -178,29 +149,31 @@ Paste the authorisation code from Zoho API Console: <paste here>
 
 ---
 
-## Step 7 — Test the Mail Client
+## Step 6 — Test the Mail Client
 
-Before hooking anything up to Claude, verify the API connection works directly:
+Before connecting to Claude, verify the API connection works:
 
 ```bash
-python -c "
-import asyncio
-from zoho.mail_client import list_unread_emails
-
-async def test():
-    emails = await list_unread_emails(max_results=5)
-    for e in emails:
-        print(f\"  [{e['date']}] {e['subject']} — from {e['from']}\")
-
-asyncio.run(test())
-"
+python test_mail.py
 ```
 
-You should see your 5 most recent unread emails printed to the terminal. If you see an error, check the troubleshooting section below.
+You should see your 5 most recent unread emails printed to the terminal:
+
+```
+Fetching up to 5 unread emails...
+
+  [1777226417286] Welcome to the latest council news
+  From: news@example.com
+
+  [1777223224579] Your weekly summary
+  From: hello@example.com
+```
+
+If you see an error, check the troubleshooting section below.
 
 ---
 
-## Step 8 — Connect to Claude Desktop
+## Step 7 — Connect to Claude Desktop
 
 Add the server to Claude Desktop's MCP configuration file.
 
@@ -208,34 +181,34 @@ Add the server to Claude Desktop's MCP configuration file.
 
 | OS | Path |
 |---|---|
-| Linux | `~/.config/claude/claude_desktop_config.json` |
+| Linux / WSL | `~/.config/claude/claude_desktop_config.json` |
 | macOS | `~/Library/Application Support/Claude/claude_desktop_config.json` |
 | Windows | `%APPDATA%\Claude\claude_desktop_config.json` |
 
-Add the following (replacing the paths with your actual paths):
+Add the following, replacing the path with the absolute path to your project directory:
 
 ```json
 {
   "mcpServers": {
     "zoho-mail": {
       "type": "stdio",
-      "command": ".venv/bin/python3",
-      "args": ["./server.py"],
+      "command": "/absolute/path/to/zohomail-mcp/.venv/bin/python",
+      "args": ["/absolute/path/to/zohomail-mcp/server.py"],
       "env": {
-        "PYTHONPATH": "."
+        "PYTHONPATH": "/absolute/path/to/zohomail-mcp"
       }
     }
   }
 }
 ```
 
-> **Important:** Point `command` directly at the Python binary **inside your venv** (`.venv/bin/python`), not the system Python. This ensures the MCP server uses the correct installed packages.
-
-To find your full path:
+To find your absolute path:
 ```bash
 pwd
-# Example output: /home/ronnie/zoho-mail-mcp
+# Example: /home/aaron/zohomail-mcp
 ```
+
+> **Important:** Point `command` at the Python binary **inside your venv**, not the system Python. This ensures the MCP server uses the correct installed packages.
 
 **Restart Claude Desktop** after saving the config. The zoho-mail tools will now appear in Claude's tool list.
 
@@ -247,7 +220,7 @@ Once connected, Claude can use these tools:
 
 | Tool | Description |
 |---|---|
-| `list_unread_emails` | Fetch unread messages from your inbox (default: 20) |
+| `list_unread_emails` | Fetch unread messages (default: 20) |
 | `read_email` | Read the full content of an email by its ID |
 | `search_emails` | Search by sender, subject fragment, or keyword |
 
@@ -261,13 +234,13 @@ Once connected, Claude can use these tools:
 ## Troubleshooting
 
 ### `No valid tokens found`
-Your `.zoho_tokens.json` is missing or corrupt. Re-run Step 6:
+Your `.zoho_tokens.json` is missing or corrupt. Re-run Step 5:
 ```bash
 python auth/zoho_auth.py
 ```
 
 ### `401 Unauthorized` from Zoho API
-Your refresh token may have been revoked (Zoho does this if unused for 30+ days, or if you revoke it in the API Console). Re-run Step 6.
+Your refresh token may have been revoked (Zoho does this if unused for 30+ days, or if you revoke it in the API Console). Re-run Step 5.
 
 ### `ModuleNotFoundError: No module named 'mcp'`
 Your virtual environment isn't active, or you installed packages outside it:
@@ -277,11 +250,11 @@ pip install -r requirements.txt
 ```
 
 ### Wrong Zoho region
-If you see `Invalid client` errors, you may be hitting the wrong regional endpoint. Check `auth/zoho_auth.py` and `zoho/mail_client.py` — change `.eu` to `.com` (or `.in` for India) in the base URLs to match your account's data centre.
+If you see `Invalid client` errors, check `auth/zoho_auth.py` and `zoho/mail_client.py` — the base URLs use `.eu`. Change to `.com` (or `.in` for India) to match your account's data centre.
 
 ### Claude Desktop doesn't show the tools
-- Confirm the paths in `claude_desktop_config.json` are absolute (not relative)
-- Check that `command` points to `.venv/bin/python`, not system Python
+- Confirm the paths in the config file are **absolute**, not relative
+- Confirm `command` points to `.venv/bin/python`, not system Python
 - Restart Claude Desktop fully after any config change
 - Check Claude Desktop logs for MCP server startup errors
 
@@ -290,7 +263,7 @@ If you see `Invalid client` errors, you may be hitting the wrong regional endpoi
 ## Security Notes
 
 - `.env` and `.zoho_tokens.json` contain credentials — they are listed in `.gitignore` and must **never** be committed to version control
-- The OAuth2 scopes used (`ZohoMail.messages.READ`, `ZohoMail.accounts.READ`) are read-only — this server cannot send, delete, or modify emails
+- The OAuth2 scopes (`ZohoMail.messages.READ`, `ZohoMail.accounts.READ`) are read-only — this server cannot send, delete, or modify emails
 - Tokens are stored locally on disk; treat `.zoho_tokens.json` with the same care as a password
 
 ---
@@ -298,12 +271,6 @@ If you see `Invalid client` errors, you may be hitting the wrong regional endpoi
 ## Keeping Dependencies Up to Date
 
 ```bash
-# Activate venv first
 source .venv/bin/activate
-
-# Upgrade all packages
 pip install --upgrade -r requirements.txt
-
-# Or upgrade a specific package
-pip install --upgrade mcp
 ```
